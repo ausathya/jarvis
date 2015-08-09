@@ -60,12 +60,14 @@ public class QueryScratchPad {
         queries.add("description:(bike OR nike OR reebok OR adidas OR jordan OR \"dc shoes\" OR \"New balance\" OR \"under armour\" OR saucony)");
     }
 
-    private static final int maxQuery = 1;
+    private static final int maxQuery = 5;
 
     public static void main(String[] args) throws ParseException {
         displayLevels();
     }
 
+
+    // Display
     public static void displayLevels() throws ParseException {
         QueryParser luceneQP = new QueryParser(Version.LUCENE_44, "text", analyzerWrapper);
         for(int i = 0; i < maxQuery; i++){
