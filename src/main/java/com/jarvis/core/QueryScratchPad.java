@@ -4,17 +4,16 @@ import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.Version;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 
 public class QueryScratchPad {
@@ -31,7 +30,7 @@ public class QueryScratchPad {
 
     static {
         // description:iPhone
-        queries.add("description:iPhone");
+        queries.add("iPhone");
         // Microsoft AND Google
         queries.add("Microsoft AND Google");
         // "Perdue" AND "antibiotics"
@@ -60,25 +59,33 @@ public class QueryScratchPad {
         queries.add("description:(bike OR nike OR reebok OR adidas OR jordan OR \"dc shoes\" OR \"New balance\" OR \"under armour\" OR saucony)");
     }
 
-    private static final int maxQuery = 5;
+    private static final int maxQuery = 7;
 
     public static void main(String[] args) throws ParseException {
-        displayLevels();
+        buildCriteriaTree();
     }
 
 
-    // Display
-    public static void displayLevels() throws ParseException {
+    public static void buildCriteriaTree() throws ParseException {
         QueryParser luceneQP = new QueryParser(Version.LUCENE_44, "text", analyzerWrapper);
-        for(int i = 0; i < maxQuery; i++){
+        for(int i = 6; i < maxQuery; i++){
             String query = queries.get(i);
             Query parsedQuery = luceneQP.parse(query);
             displayQuery(query, parsedQuery);
+            buildCriteriaTree(query);
         }
     }
 
+    public static void buildCriteriaTree(String query){
+
+    }
+
+    // Display
     public static void displayQuery(String queryString, Query query){
         logger.info(String.format("Type:%-20s  Original: %-25s    Parsed: %s", query.getClass().getSimpleName(), queryString, query));
+        Set<Term> termsSet = new LinkedHashSet<Term>();
+        query.extractTerms(termsSet);
+        logger.info(termsSet);
         if(query instanceof BooleanQuery){
             printBooleanQuery(0, (BooleanQuery)query);
         } else {
@@ -89,6 +96,7 @@ public class QueryScratchPad {
     public static void printBooleanQuery(int level, BooleanQuery query){
         //logger.debug("Min Match: " + query.getMinimumNumberShouldMatch());
         level++;
+
         for(BooleanClause booleanClause :  query.clauses()){
             if(booleanClause.getQuery() instanceof BooleanQuery) {
                 logger.debug(getPrintPrefix(level) + booleanClause.getOccur().name());
@@ -100,6 +108,10 @@ public class QueryScratchPad {
     }
 
     public static void printNonBooleanQuery(int level, BooleanClause.Occur occur, Query query){
+//        if(query instanceof TermQuery){
+//            TermQuery tq = (TermQuery) query;
+//            tq.getTerm();
+//        }
         logger.debug(String.format("%s%s %s  {%s}", getPrintPrefix(level), occur.name(), query.getClass().getSimpleName(), query));
     }
 
@@ -108,7 +120,7 @@ public class QueryScratchPad {
     private static String getPrintPrefix(int level){
         String printPrefix = "";
         for(int i =1; i<level; i++) printPrefix += prettyPrintPrefix;
-        return printPrefix + "> ";
+        return  " [" + level + "] " + printPrefix + " > ";
     }
 
 }
