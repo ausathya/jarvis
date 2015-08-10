@@ -28,9 +28,7 @@ public class QueryScratchPad {
 
     private static final Map<String, Analyzer> analyzerPerField = new HashMap<String, Analyzer>();
 
-
     private static PerFieldAnalyzerWrapper analyzerWrapper = new PerFieldAnalyzerWrapper(new KeywordAnalyzer(), analyzerPerField);
-
 
     static {
         // description:iPhone
@@ -69,7 +67,6 @@ public class QueryScratchPad {
         buildCriteriaTree();
     }
 
-
     public static void buildCriteriaTree() throws ParseException {
         List<TermCriteria> tcList = new ArrayList<TermCriteria>();
         QueryParser luceneQP = new QueryParser(Version.LUCENE_44, "text", analyzerWrapper);
@@ -104,10 +101,11 @@ public class QueryScratchPad {
         }
     }
 
-    public static void buildBQCriteria(int level, BooleanClause parentBC, BooleanQuery query, List<TermCriteria> tcList){
-        logger.debug(String.format("%s%s %s  {%s}", getPrintPrefix(level), parentBC.getOccur().name(), query.getClass().getSimpleName(), query));
+    // Even the most wackiest nested queries couldn't cause problem with recursion.
+    public static void buildBQCriteria(int level, BooleanClause parentBC, BooleanQuery q, List<TermCriteria> tcList){
+        logger.info(String.format("%s%s %s  {%s}", getPrintPrefix(level), parentBC.getOccur().name(), q.getClass().getSimpleName(), q));
         level++;
-        for(BooleanClause bc :  query.clauses()){
+        for(BooleanClause bc :  q.clauses()){
             if(bc.getQuery() instanceof BooleanQuery) {
                 buildBQCriteria(level, bc, (BooleanQuery) bc.getQuery(), tcList);
             } else {
@@ -125,7 +123,7 @@ public class QueryScratchPad {
     }
 
     public static List<TermCriteria> buildNonBQCriteria(int level, Occur occur, Query q){
-        logger.debug(String.format("%s%s %s  {%s}", getPrintPrefix(level), occur.name(), q.getClass().getSimpleName(), q));
+        logger.info(String.format("%s%s %s  {%s}", getPrintPrefix(level), occur.name(), q.getClass().getSimpleName(), q));
         List<TermCriteria> termCriteriaList = new ArrayList<TermCriteria>(2);
         if(q instanceof TermQuery){
             termCriteriaList.add(createTermCriteria((TermQuery) q));
@@ -152,9 +150,9 @@ public class QueryScratchPad {
     private static final String prettyPrintPrefix = " ----- ";
 
     private static String getPrintPrefix(int level){
-        String printPrefix = "";
-        for(int i =1; i < level; i++) printPrefix += prettyPrintPrefix;
-        return  String.format(" [%d] %s > ", level, printPrefix);
+        String prefix = "";
+        for(int i =0; i < level; i++) prefix += prettyPrintPrefix;
+        return  String.format(" [%d] %s > ", level, prefix);
     }
 
 }
