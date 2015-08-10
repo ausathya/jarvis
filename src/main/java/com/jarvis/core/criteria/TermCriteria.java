@@ -22,6 +22,18 @@ public class TermCriteria {
         addMustFields(mustFields);
     }
 
+    public String getTerm() {
+        return term;
+    }
+
+    public List<String> getMustFields() {
+        return mustFields;
+    }
+
+    public TermCriteria getChildTermCriteria() {
+        return childTermCriteria;
+    }
+
     private void addMustFields(String... mustFields){
         for(String f : mustFields){
             this.mustFields.add(f);

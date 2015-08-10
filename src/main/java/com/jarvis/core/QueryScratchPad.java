@@ -1,5 +1,6 @@
 package com.jarvis.core;
 
+import com.jarvis.core.criteria.TermCriteria;
 import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
@@ -7,10 +8,7 @@ import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.search.BooleanClause;
-import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.*;
 import org.apache.lucene.util.Version;
 
 import java.util.*;
@@ -67,52 +65,86 @@ public class QueryScratchPad {
 
 
     public static void buildCriteriaTree() throws ParseException {
+        List<TermCriteria> termCriteriaList = new ArrayList<TermCriteria>();
         QueryParser luceneQP = new QueryParser(Version.LUCENE_44, "text", analyzerWrapper);
         for(int i = 6; i < maxQuery; i++){
-            String query = queries.get(i);
-            Query parsedQuery = luceneQP.parse(query);
-            displayQuery(query, parsedQuery);
-            buildCriteriaTree(query);
+            String queryString = queries.get(i);
+            Query query = luceneQP.parse(queryString);
+            buildCriteriaTree(queryString, query, termCriteriaList);
+        }
+        displayCriteriaList(termCriteriaList);
+    }
+
+    private static void displayCriteriaList(List<TermCriteria> termCriteriaList){
+        for(TermCriteria termCriteria : termCriteriaList){
+            logger.info(String.format("TermCriteria Term:%-20s  Fields: %s", termCriteria.getTerm(), termCriteria.getMustFields()));
         }
     }
 
-    public static void buildCriteriaTree(String query){
-
-    }
-
-    // Display
-    public static void displayQuery(String queryString, Query query){
+    //  ---------------------   Tree    ---------------------
+    public static void buildCriteriaTree(String queryString, Query query, List<TermCriteria> termCriteriaList){
         logger.info(String.format("Type:%-20s  Original: %-25s    Parsed: %s", query.getClass().getSimpleName(), queryString, query));
-        Set<Term> termsSet = new LinkedHashSet<Term>();
-        query.extractTerms(termsSet);
-        logger.info(termsSet);
         if(query instanceof BooleanQuery){
-            printBooleanQuery(0, (BooleanQuery)query);
+            BooleanQuery booleanQuery = (BooleanQuery) query;
+            for(BooleanClause booleanClause :  booleanQuery.clauses()) {
+                if(booleanClause.getQuery() instanceof BooleanQuery) {
+                    buildBQCriteria(0, booleanClause, (BooleanQuery) booleanClause.getQuery(), termCriteriaList);
+                } else {
+                    termCriteriaList.addAll(buildNonBQCriteria(0, booleanClause, booleanClause.getQuery()));
+                }
+            }
         } else {
-            printNonBooleanQuery(0, BooleanClause.Occur.SHOULD, query);
+            termCriteriaList.addAll(buildNonBQCriteria(0, query));
         }
     }
 
-    public static void printBooleanQuery(int level, BooleanQuery query){
+    public static void buildBQCriteria(int level, BooleanClause parentBooleanClause, BooleanQuery query, List<TermCriteria> termCriteriaList){
         //logger.debug("Min Match: " + query.getMinimumNumberShouldMatch());
+        logger.debug(String.format("%s%s %s  {%s}", getPrintPrefix(level), parentBooleanClause.getOccur().name(), query.getClass().getSimpleName(), query));
         level++;
-
         for(BooleanClause booleanClause :  query.clauses()){
             if(booleanClause.getQuery() instanceof BooleanQuery) {
-                logger.debug(getPrintPrefix(level) + booleanClause.getOccur().name());
-                printBooleanQuery(level, (BooleanQuery) booleanClause.getQuery());
+                buildBQCriteria(level, booleanClause, (BooleanQuery) booleanClause.getQuery(), termCriteriaList);
             } else {
-                printNonBooleanQuery(level, booleanClause.getOccur(), booleanClause.getQuery());
+                termCriteriaList.addAll(buildNonBQCriteria(level, booleanClause, booleanClause.getQuery()));
             }
         }
     }
 
-    public static void printNonBooleanQuery(int level, BooleanClause.Occur occur, Query query){
-//        if(query instanceof TermQuery){
-//            TermQuery tq = (TermQuery) query;
-//            tq.getTerm();
-//        }
+    public static List<TermCriteria> buildNonBQCriteria(int level, Query query){
+        return buildNonBQCriteria(level, BooleanClause.Occur.SHOULD, query);
+    }
+
+    public static List<TermCriteria> buildNonBQCriteria(int level, BooleanClause booleanClause, Query query){
+        return buildNonBQCriteria(level, booleanClause.getOccur(), query);
+    }
+
+    public static List<TermCriteria> buildNonBQCriteria(int level, BooleanClause.Occur occur, Query query){
         logger.debug(String.format("%s%s %s  {%s}", getPrintPrefix(level), occur.name(), query.getClass().getSimpleName(), query));
+        List<TermCriteria> termCriteriaList = new ArrayList<TermCriteria>(2);
+        if(query instanceof TermQuery){
+            TermQuery termQuery = (TermQuery) query;
+            termCriteriaList.add(createTermCriteria(termQuery));
+        } else if(query instanceof PhraseQuery){
+            PhraseQuery phraseQuery = (PhraseQuery) query;
+            termCriteriaList.addAll(createTermCriteria(phraseQuery));
+        }
+        return termCriteriaList;
+    }
+
+    private static TermCriteria createTermCriteria(TermQuery termQuery){
+        Term term = termQuery.getTerm();
+        return new TermCriteria(term.text(), term.field());
+    }
+
+    private static List<TermCriteria> createTermCriteria(PhraseQuery phraseQuery){
+        Term[] terms = phraseQuery.getTerms();
+        List<TermCriteria> termCriteriaList = new ArrayList<TermCriteria>(terms.length);
+        for(Term term : terms){
+            TermCriteria tc = new TermCriteria(term.text(), term.field());
+            termCriteriaList.add(tc);
+        }
+        return termCriteriaList;
     }
 
     private static final String prettyPrintPrefix = " ----- ";
