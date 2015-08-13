@@ -10,16 +10,24 @@ public class TermCriteria {
 
     private List<String> mustFields = new LinkedList<String>();
 
-    private TermCriteria childTermCriteria;
-
-    public TermCriteria(String term, TermCriteria childTermCriteria, String... mustFields) {
-        this(term, mustFields);
-        this.childTermCriteria = childTermCriteria;
-    }
+    private TermCriteria nextTermCriteria;
 
     public TermCriteria(String term, String... mustFields) {
         this.term = term;
         addMustFields(mustFields);
+    }
+
+    // Copy Constructor
+    private TermCriteria(TermCriteria termCriteria){
+        this.term = termCriteria.getTerm();
+        this.mustFields.addAll(termCriteria.getMustFields());
+        if(termCriteria.getNextTermCriteria() != null){
+            this.nextTermCriteria = new TermCriteria(termCriteria.getNextTermCriteria());
+        }
+    }
+
+    public static TermCriteria clone(TermCriteria cloneFrom){
+        return new TermCriteria(cloneFrom);
     }
 
     public String getTerm() {
@@ -30,13 +38,33 @@ public class TermCriteria {
         return mustFields;
     }
 
-    public TermCriteria getChildTermCriteria() {
-        return childTermCriteria;
+    public TermCriteria getNextTermCriteria() {
+        return nextTermCriteria;
     }
 
     private void addMustFields(String... mustFields){
         for(String f : mustFields){
             this.mustFields.add(f);
         }
+    }
+
+    public void merge(TermCriteria that){
+        getTail(this).nextTermCriteria = that;
+    }
+
+    private TermCriteria getTail(TermCriteria termCtriteria){
+        if(termCtriteria.getNextTermCriteria() == null)
+            return termCtriteria;
+        else
+            return getTail(termCtriteria.getNextTermCriteria());
+    }
+
+
+    @Override
+    public String toString() {
+        if(nextTermCriteria != null)
+            return String.format("TC[{%15s} %10s --> tc=%s]", term, mustFields, nextTermCriteria);
+        else
+            return String.format("TC[{%15s} %10s]", term, mustFields);
     }
 }
