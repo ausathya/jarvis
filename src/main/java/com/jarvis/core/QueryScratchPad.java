@@ -35,7 +35,7 @@ public class QueryScratchPad {
         // "Perdue" AND "antibiotics"
         queries.add("\"Perdue\" AND \"antibiotics\"");
         // ("british columbia" OR BC) AND "wild within"
-        queries.add("(\"british columbia\" OR BC) AND \"wild within\"");
+        queries.add("(\"british columbia\" OR \\[BC\\]) AND \"wild within\"");
         // "nwnatural" OR "nw natural" OR "northwest natural"
         queries.add("\"nwnatural\" OR \"nw natural\" OR \"northwest natural\"");
         // ( ( "dow" OR "chemical" ) AND ( "canada" ) ) AND NOT "dow jones"
@@ -61,6 +61,8 @@ public class QueryScratchPad {
         queries.add("description:(bike OR nike OR reebok OR adidas OR jordan OR \"dc shoes\" OR \"New balance\" OR \"under armour\" OR saucony)");
     }
 
+    private static final QueryParser QUERY_PARSER = new QueryParser(Version.LUCENE_44, "text", analyzerWrapper);
+
     private static final int maxQuery = queries.size();
 
     private static final int noOfIterations = 1;
@@ -82,7 +84,7 @@ public class QueryScratchPad {
         buildCriteriaTree();
         final int queriesPerIteration = maxQuery;
         final int totalQueries = noOfIterations * queriesPerIteration;
-        logger.info("Start measuring time.");
+        logger.info("Start measuring execution time.");
         long startTime = System.currentTimeMillis();
         for(int i = 1; i <= noOfIterations; i++){
             buildCriteriaTree();
@@ -100,99 +102,95 @@ public class QueryScratchPad {
         }
     }
 
-    private static final QueryParser QUERY_PARSER = new QueryParser(Version.LUCENE_44, "text", analyzerWrapper);
-
     //  ---------------------   More like Pseudo-Tree    ---------------------
     public static List<TermCriteria> buildCriteriaTree(String qString) throws ParseException{
         List<TermCriteria> mergedTCList;
         Query q = QUERY_PARSER.parse(qString);
-        if(logger.isDebugEnabled()) logger.debug(String.format("Type:%-20s  Original: %-25s    Parsed: %s", q.getClass().getSimpleName(), qString, q));
-        if(q instanceof BooleanQuery){
-            BooleanQuery bq = (BooleanQuery) q;
-            List<List<TermCriteria>> queryTCList = new ArrayList<List<TermCriteria>>();
-            Occur clause = SHOULD;
-            for(BooleanClause bc :  bq.clauses()) {
-                if(bc.getOccur() == Occur.MUST) {
-                    clause = Occur.MUST;
-                }
-                queryTCList.add(processBooleanClause(0, bc, bq));
-            }
-            if(clause == Occur.MUST) {
-                mergedTCList = mergeConjunction(queryTCList);
-            } else {
-                mergedTCList = mergeDisjunction(queryTCList);
-            }
-        } else {
-            mergedTCList = buildNonBQCriteria(0, q);
-        }
+        mergedTCList = processQuery(0, q);
         logger.info(String.format("Total Criteria: %d", mergedTCList.size()));
         displayCriteriaList(mergedTCList);
         return mergedTCList;
     }
 
-    private static List<TermCriteria> processBooleanClause(int level, BooleanClause bc, BooleanQuery bq){
-        List<TermCriteria> mergedTCList;
-        if(bc.getQuery() instanceof BooleanQuery) {
-            if(logger.isDebugEnabled())logger.debug(String.format("%s%s %s  Parent:{%s}    ****", getPrintPrefix(level), bc.getOccur().name(), bq.getClass().getSimpleName(), bq));
-            level++;
-            BooleanQuery childBQ = (BooleanQuery) bc.getQuery();
-            List<List<TermCriteria>> queryTCList = new ArrayList<List<TermCriteria>>();
-            Occur clause = SHOULD;
-            for(BooleanClause childBC : childBQ.clauses()){
-                if(childBC.getOccur() == Occur.MUST) {
-                    clause = Occur.MUST;
-                }
-                queryTCList.add(processBooleanClause(level, childBC, childBQ));
-            }
-            if(clause == Occur.MUST) {
-                mergedTCList = mergeConjunction(queryTCList);
-            } else {
-                mergedTCList = mergeDisjunction(queryTCList);
-            }
+    private static List<TermCriteria> processQuery(int level, Query q){
+        if(logger.isDebugEnabled()) logger.debug(String.format("Type:%-20s  Parsed: %s", q.getClass().getSimpleName(), q));
+        List<TermCriteria> tcList;
+        if(q instanceof BooleanQuery){
+            tcList = processBooleanQuery(level, (BooleanQuery) q);
         } else {
-            mergedTCList = buildNonBQCriteria(level, bc, bc.getQuery());
+            tcList = buildNonBQCriteria(level, q);
         }
-        if(logger.isDebugEnabled())logger.debug("Intermediate merged list for:" + String.format("Type:%-20s  Parsed: %s", bq.getClass().getSimpleName(), bq));
+        return tcList;
+    }
+
+    private static List<TermCriteria> processBooleanQuery(int level, BooleanQuery bq){
+        return processBooleanClause(level, bq.clauses());
+    }
+
+    private static List<TermCriteria> processBooleanClause(int level, List<BooleanClause> booleanClauseList){
+        List<List<TermCriteria>> multiTCList = new ArrayList<List<TermCriteria>>();
+        Occur clause = SHOULD;
+        for(BooleanClause bc : booleanClauseList){
+            if(bc.getOccur() == Occur.MUST) {
+                clause = Occur.MUST;
+            }
+            multiTCList.add(processBooleanClause(level, bc));
+        }
+        return mergeTermCriteria(clause, multiTCList);
+    }
+
+    private static List<TermCriteria> processBooleanClause(int level, BooleanClause bc){
+        if(logger.isDebugEnabled())logger.debug("Intermediate merged list for:" + String.format("Type:%-20s  Parsed: %s", bc.getClass().getSimpleName(), bc));
+        List<TermCriteria> mergedTCList = processQuery(++level, bc.getQuery());
         if(logger.isDebugEnabled())displayCriteriaList(mergedTCList);
         return mergedTCList;
     }
 
-    private static List<TermCriteria> mergeDisjunction(List<List<TermCriteria>> queryTCList){
-        List<TermCriteria> finalTCList = new ArrayList<TermCriteria>();
-        if(queryTCList.size() == 0) return finalTCList;
-        if(queryTCList.size() == 1) return queryTCList.get(0);
-        for(List<TermCriteria> tcList : queryTCList){
+    private static List<TermCriteria> mergeTermCriteria(Occur clause, List<List<TermCriteria>> multiTCList){
+        List<TermCriteria> mergedTCList;
+        if(clause == Occur.MUST) {
+            mergedTCList = mergeConjunction(multiTCList);
+        } else {
+            mergedTCList = mergeDisjunction(multiTCList);
+        }
+        return mergedTCList;
+    }
+
+    // Merge disjunction queries
+    private static List<TermCriteria> mergeDisjunction(List<List<TermCriteria>> multiTCList){
+        if(multiTCList.size() == 0) return new ArrayList<TermCriteria>();
+        if(multiTCList.size() == 1) return multiTCList.get(0);
+        List<TermCriteria> mergedTCList = new ArrayList<TermCriteria>();
+        for(List<TermCriteria> tcList : multiTCList){
             for(TermCriteria tc : tcList){
                 if(logger.isDebugEnabled())logger.debug("Add OR Criteria: " + tc);
-                finalTCList.add(tc);
+                mergedTCList.add(tc);
             }
         }
-
-        return finalTCList;
+        return mergedTCList;
     }
 
-    private static List<TermCriteria> mergeConjunction(List<List<TermCriteria>> queryTCList){
-        List<TermCriteria> finalTCList = new ArrayList<TermCriteria>();
-        if(queryTCList.size() == 0) return finalTCList;
-        if(queryTCList.size() == 1) return queryTCList.get(0);
-        Iterator<List<TermCriteria>> conjunctions = queryTCList.iterator();
-        finalTCList = conjunctions.next();
+    // Merge conjunction queries
+    private static List<TermCriteria> mergeConjunction(List<List<TermCriteria>> multiTCList){
+        if(multiTCList.size() == 0) return new ArrayList<TermCriteria>();
+        if(multiTCList.size() == 1) return multiTCList.get(0);
+        Iterator<List<TermCriteria>> conjunctions = multiTCList.iterator();
+        List<TermCriteria> mergedTCList = conjunctions.next();
         while(conjunctions.hasNext()){
-            finalTCList = mergeConjuction(finalTCList, conjunctions.next());
+            mergedTCList = mergeConjunction(mergedTCList, conjunctions.next());
         }
-        return finalTCList;
+        return mergedTCList;
     }
 
-    private static List<TermCriteria> mergeConjuction(List<TermCriteria> listA, List<TermCriteria> listB){
+    private static List<TermCriteria> mergeConjunction(List<TermCriteria> listA, List<TermCriteria> listB){
         final int size = ( listA.size() >= listB.size() ) ? listA.size() : listB.size();
         List<TermCriteria> mergedTCList = new ArrayList<TermCriteria>(size);
         for(TermCriteria tcA : listA){
             for(TermCriteria tcB : listB){
                 TermCriteria cloneOfTCA = TermCriteria.clone(tcA);
-                TermCriteria cloneOfTCB = TermCriteria.clone(tcB);
-                cloneOfTCA.merge(cloneOfTCB);
-                if(logger.isDebugEnabled())logger.debug("Add AND Criteria: " + cloneOfTCA);
+                cloneOfTCA.merge(TermCriteria.clone(tcB));
                 mergedTCList.add(cloneOfTCA);
+                if(logger.isDebugEnabled())logger.debug("Add AND Criteria: " + cloneOfTCA);
             }
         }
         return mergedTCList;
@@ -200,10 +198,6 @@ public class QueryScratchPad {
 
     public static List<TermCriteria> buildNonBQCriteria(int level, Query q){
         return buildNonBQCriteria(level, SHOULD, q);
-    }
-
-    public static List<TermCriteria> buildNonBQCriteria(int level, BooleanClause bc, Query q){
-        return buildNonBQCriteria(level, bc.getOccur(), q);
     }
 
     public static List<TermCriteria> buildNonBQCriteria(int level, Occur occur, Query q) {
@@ -231,7 +225,6 @@ public class QueryScratchPad {
         }
         return tcList;
     }
-
 
     private static void displayCriteriaList(List<TermCriteria> termCriteriaList){
         if(logger.isDebugEnabled())logger.debug("Total List of Criteria: " + termCriteriaList.size());
